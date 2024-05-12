@@ -13,8 +13,8 @@ from math import isnan
 import os
 
 app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
-app.title = "NBA Parlay Dashboard"
 server = app.server
+app.title = "NBA Parlay Dashboard"
 
 ##### SETUP CODE #####
 ## AWS S3 Bucket Settings
@@ -592,4 +592,4 @@ def update_entity_dd_options(team_player_choice):
         return team_dd_opts, [], ['PTS','+/-'], []
     
 if __name__ == '__main__':
-    app.run(debug=True) # hot-reloading - Dash will automatically refresh browser when changes in code
+    app.run(debug=False) # hot-reloading - Dash will automatically refresh browser when changes in code
