@@ -14,6 +14,7 @@ import os
 
 app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 app.title = "NBA Parlay Dashboard"
+server = app.server
 
 ##### SETUP CODE #####
 ## AWS S3 Bucket Settings
