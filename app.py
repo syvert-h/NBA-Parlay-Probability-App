@@ -1,5 +1,7 @@
 """
 NBA Props Dash App using boxscore data.
+
+Note: RENAMED FROM LATEST VERSION APP V1.3 (2024/05/13)
 """
 from dash import Dash, html, dcc, Input, Output, callback, ALL, dash_table
 import dash_bootstrap_components as dbc

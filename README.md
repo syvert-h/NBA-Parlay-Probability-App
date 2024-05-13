@@ -1,1 +1,1 @@
-# NBA-PArlay-Probability-App
+# NBA-Parlay-Probability-App
