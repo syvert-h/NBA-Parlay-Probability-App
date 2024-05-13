@@ -25,7 +25,7 @@ pandas
 plotly
 python-dateutil
 python-dotenv
-pytz==2024.1
+pytz
 requests
 retrying
 s3transfer
