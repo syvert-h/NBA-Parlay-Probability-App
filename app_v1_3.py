@@ -1,5 +1,9 @@
 """
 NBA Props Dash App using boxscore data.
+
+Deployment Tips:
+- https://github.com/thusharabandara/dash-app-render-deployment
+- https://community.plotly.com/t/migrating-from-heroku-how-to-use-render-to-deploy-a-python-dash-app-solution/68048 (Change Start Command (IMPORTANT) in Render)
 """
 from dash import Dash, html, dcc, Input, Output, callback, ALL, dash_table
 import dash_bootstrap_components as dbc
