@@ -5,12 +5,14 @@ Deployment Tips:
 - https://github.com/thusharabandara/dash-app-render-deployment
 - https://community.plotly.com/t/migrating-from-heroku-how-to-use-render-to-deploy-a-python-dash-app-solution/68048 (Change Start Command (IMPORTANT) in Render)
 """
+
 from dash import Dash, html, dcc, Input, Output, callback, ALL, dash_table
-import dash_bootstrap_components as dbc
+import dash_bootstrap_components as dbc # dash app layout (package name: dash-bootstrap-components)
 import plotly.express as px # plots
 import plotly.graph_objects as go # plots
 from dotenv import load_dotenv # .env file access
 import boto3 # aws s3 access
+from botocore.exceptions import ClientError # capture aws s3 exceptions
 from io import BytesIO # handle reading files
 import pandas as pd
 from math import isnan
@@ -33,17 +35,27 @@ s3 = boto3.client("s3",
     region_name = region
 )
 ## Read CSV file from AWS S3 Bucket - current season (implement seasons option later)
-players_regular = s3.get_object(Bucket=bucket_name, Key="2023-24_players_boxscore_regular.csv")
+season = "2024-25"
+players_regular = s3.get_object(Bucket=bucket_name, Key=f"{season}_players_boxscore_regular.csv")
 players_regular = pd.read_csv(BytesIO(players_regular['Body'].read()))#.sort_values('GAME DATE').set_index('PLAYER') # oldest to newest
-players_playoffs = s3.get_object(Bucket=bucket_name, Key="2023-24_players_boxscore_playoffs.csv")
-players_playoffs = pd.read_csv(BytesIO(players_playoffs['Body'].read()))#.sort_values('GAME DATE').set_index('PLAYER') # oldest to newest
-players = pd.concat([players_regular, players_playoffs]).sort_values('GAME DATE').set_index('PLAYER') # oldest to newest
+players = None # temp
+try:
+    players_playoffs = s3.get_object(Bucket=bucket_name, Key=f"{season}_players_boxscore_playoffs.csv")
+    players_playoffs = pd.read_csv(BytesIO(players_playoffs['Body'].read()))#.sort_values('GAME DATE').set_index('PLAYER') # oldest to newest
+    players = pd.concat([players_regular, players_playoffs]).sort_values('GAME DATE').set_index('PLAYER') # oldest to newest
+except s3.exceptions.NoSuchKey: # file does not exist in given bucket
+    players = players_regular.sort_values('GAME DATE').set_index('PLAYER')
 
-teams_regular = s3.get_object(Bucket=bucket_name, Key="2023-24_teams_boxscore_regular.csv")
+teams_regular = s3.get_object(Bucket=bucket_name, Key=f"{season}_teams_boxscore_regular.csv")
 teams_regular = pd.read_csv(BytesIO(teams_regular['Body'].read()))#.sort_values('GAME DATE').set_index('TEAM')
-teams_playoffs = s3.get_object(Bucket=bucket_name, Key="2023-24_teams_boxscore_playoffs.csv")
-teams_playoffs = pd.read_csv(BytesIO(teams_playoffs['Body'].read()))#.sort_values('GAME DATE').set_index('TEAM')
-teams = pd.concat([teams_regular, teams_playoffs]).sort_values('GAME DATE').set_index('TEAM')
+teams = None # temp
+try:
+    teams_playoffs = s3.get_object(Bucket=bucket_name, Key=f"{season}_teams_boxscore_playoffs.csv")
+    teams_playoffs = pd.read_csv(BytesIO(teams_playoffs['Body'].read()))#.sort_values('GAME DATE').set_index('TEAM')
+    teams = pd.concat([teams_regular, teams_playoffs]).sort_values('GAME DATE').set_index('TEAM')
+except s3.exceptions.NoSuchKey: # file does not exist in given bucket
+    teams = teams_regular.sort_values('GAME DATE').set_index('TEAM')
+
 ## Team/Player Dropdown Options
 player_dd_opts = sorted(players.index.unique())
 team_dd_opts = sorted(teams.index.unique())
@@ -280,22 +292,24 @@ app.layout = html.Div([
     html.Hr(),
 
     dbc.Row(id='entity_dashboard_title', className='px-2 py-2'),
-    dbc.Row([
-        dbc.Col([ ## Left Side (Cards, Sliders, Prob. Table)
-            dbc.Row(id='sliders_section', className='pb-4'),
-            dbc.Row(id='odds_table_section')
-        ], width=2, className='px-4 py-2'),
-        dbc.Col([ ## Right Side (Tab of Plots)
-            dbc.Row(id='cards_section', className='py-2'),
-            dbc.Row([
-                dbc.Col(id='timeseries_bar', width=6, className='py-2'),
-                dbc.Col(id='probability_hist', width=6, className='py-2')
-            ])
-        ], width=10)
-    ]),
-    dbc.Row([
-        dbc.Col([], width=2),
-        dbc.Col(id='boxscore_datatable', width=10, className='py-2')
+    dbc.Row(id='entity_dashboard_display', children=[
+        dbc.Row([
+            dbc.Col([ ## Left Side (Cards, Sliders, Prob. Table)
+                dbc.Row(id='sliders_section', className='pb-4'),
+                dbc.Row(id='odds_table_section')
+            ], width=2, className='px-4 py-2'),
+            dbc.Col([ ## Right Side (Tab of Plots)
+                dbc.Row(id='cards_section', className='py-2'),
+                dbc.Row([
+                    dbc.Col(id='timeseries_bar', width=6, className='py-2'),
+                    dbc.Col(id='probability_hist', width=6, className='py-2')
+                ])
+            ], width=10)
+        ]),
+        dbc.Row([
+            dbc.Col([], width=2),
+            dbc.Col(id='boxscore_datatable', width=10, className='py-2')
+        ])
     ])
 ])
 
@@ -350,7 +364,7 @@ def create_plots(json_df, props, entity, entity_type):
     Input('entity_type_radio', 'value')]
 )
 def create_entity_title(entity, json_df, entity_type):
-    if entity != []:
+    if not entity is None:
         df = pd.read_json(json_df, orient="records")
         team_name = get_team_name(df['TEAM'].iloc[-1]) # latest team
         if entity_type == "TEAM":
