@@ -74,7 +74,7 @@ def get_entity_props_sliders(df, props):
         min_val, max_val, avg = prop_col.min(), prop_col.max(), round(prop_col.mean())
         slider = dcc.Slider(
             id = {"type": "prop-slider", "index": prop}, # IMPORTANT!!!!
-            min = min_val, max = max_val, value = avg,
+            min = 0, max = max_val, value = avg,
             step = 1,
             marks = None, # marks = {min_val: str(min_val), max_val: str(max_val)},
             tooltip={"placement": "bottom", "always_visible": True}
@@ -93,8 +93,9 @@ def get_entity_props_counts_detailed(prop_counts_df):
     total = prop_counts_df['COUNT'].sum()
     # prop_counts_df['PDF'] = prop_counts_df['COUNT'] / total
     cum_sum_count = prop_counts_df['COUNT'].cumsum()
-    prop_counts_df['CDF'] = cum_sum_count / total # F(X=x) = P(X <= x) i.e. UNDER's
-    prop_counts_df['REVERSE CDF'] = 1 - prop_counts_df['CDF'] # 1 - F(X=x) <=> P(X > x) i.e. OVER's
+    prop_counts_df['CDF'] = cum_sum_count / total # UNDER's: P(X <= x) = F(X = x)
+    prop_counts_df['CDF x-1'] = prop_counts_df['CDF'].shift(1, fill_value=0) # shift 'CDF' down one cell [i.e. P(X <= x-1) = F(X = x-1)]
+    prop_counts_df['REVERSE CDF'] = 1 - prop_counts_df['CDF x-1'] # OVER's: P(X >= x) = 1 - P(X < x) = 1 - P(X <= (x-1)) = 1 - F(X = (x-1))
     return prop_counts_df
 def get_entity_props_counts(df, props, entity_type):
     # Pivot and Count Prop Occurrences
@@ -104,14 +105,6 @@ def get_entity_props_counts(df, props, entity_type):
     # Attach Prop Occurences CDF (UNDER Probability), Reverse CDF (OVER Probability)
     final_counts = prop_value_occurrence_count.groupby('PROP').apply(get_entity_props_counts_detailed, include_groups=False).reset_index(level=0)
     return final_counts# Note: still grouped by PROP
-def get_index_position(prop_col, value):
-    last_seen = 0
-    for i, num in enumerate(prop_col):
-        if value > num:
-            last_seen = i
-        elif value <= num: # take the floor (last seen num)
-            break
-    return last_seen
 
 ### Get DataTable of Prop Slider Odds
 def get_probs_datatable(odds_df):
@@ -461,13 +454,23 @@ def store_props_list_df(parlay_dict, prop_counts_dict, slider_values, n_clicks, 
         # Get each slider inputs corresponding probability
         counts_df = pd.DataFrame(prop_counts_dict)
         prop_probs = []
-        cdf_type = {'OVER': 'REVERSE CDF', 'UNDER': 'CDF'}
+        cdf_types = {'OVER': 'REVERSE CDF', 'UNDER': 'CDF'}
         for i, prop in enumerate(props):
             slider_value = slider_values[i]
-            cdf = cdf_type[over_under]
+            cdf_type = cdf_types[over_under]
             prop_counts = counts_df.groupby('PROP').get_group(prop)
-            i = max(0, (prop_counts['VALUE'].searchsorted(slider_value, side="right") - 1)) # use searchsorted to find the floor index
-            prop_prob = prop_counts[cdf].iloc[i]
+            prop_prob = None # temporary
+            i = prop_counts['VALUE'].searchsorted(slider_value, side="left")
+            if over_under == "UNDER": # i.e. CDF = P(X <= x) <=> F(X = x)
+                if (i == 0) and (slider_value < prop_counts['VALUE'].iloc[i]): # slider less than minimum observed
+                    prop_prob = 0 # dealing with UNDER (CDF)
+                else:
+                    prop_prob = prop_counts[cdf_type].iloc[i]
+            else: # "OVER" (Reverse CDF) = P(X >= x) = 1 - P(X < x) <=> 1 - P(X <= (x-1)) <=> 1 - F(X = (x-1))
+                if i == prop_counts.shape[0]: # slider more than maximum observed
+                    prop_prob = 0 # dealing with OVER (Reverse CDF)
+                else:
+                    prop_prob = prop_counts[cdf_type].iloc[i]
             prop_probs.append( [entity, prop, over_under, slider_value, prop_prob] )
         entity_parlay_df = pd.DataFrame(prop_probs, columns=['ENTITY','PROP','O/U','VALUE','PROBABILITY'])
         # Append to existing data and Store as json
@@ -489,15 +492,25 @@ def display_entity_odds_table(prop_counts_dict, sliders, props, entity, over_und
         counts_df = pd.DataFrame(prop_counts_dict)
         prop_probs, multi_odds = {}, 1
         sign_type = {"OVER": ">=", "UNDER": "<="}
-        cdf_type = {'OVER': 'REVERSE CDF', 'UNDER': 'CDF'}
+        cdf_types = {'OVER': 'REVERSE CDF', 'UNDER': 'CDF'}
         for i, prop in enumerate(props):
             slider_value = sliders[i]
-            sign, cdf = sign_type[over_under], cdf_type[over_under]
+            sign, cdf_type = sign_type[over_under], cdf_types[over_under]
             prop_counts = counts_df.groupby('PROP').get_group(prop)
-            i = max(0, (prop_counts['VALUE'].searchsorted(slider_value, side="right") - 1)) # use searchsorted to find the floor index
-            cdf_prob = prop_counts[cdf].iloc[i]
-            prop_probs[f'{prop} {sign} {slider_value}'] = round(cdf_prob, 6) # round only for output purposes (not rounded in calculations)
-            multi_odds *= cdf_prob
+            prop_prob = None # temporary
+            i = prop_counts['VALUE'].searchsorted(slider_value, side="left")
+            if over_under == "UNDER": # i.e. CDF = P(X <= x) <=> F(X = x)
+                if (i == 0) and (slider_value < prop_counts['VALUE'].iloc[i]): # slider less than minimum observed
+                    prop_prob = 0 # dealing with UNDER (CDF)
+                else:
+                    prop_prob = prop_counts[cdf_type].iloc[i]
+            else: # "OVER" (Reverse CDF) = P(X >= x) = 1 - P(X < x) <=> 1 - P(X <= (x-1)) <=> 1 - F(X = (x-1))
+                if i == prop_counts.shape[0]: # slider more than maximum observed
+                    prop_prob = 0 # dealing with OVER (Reverse CDF)
+                else:
+                    prop_prob = prop_counts[cdf_type].iloc[i]
+            prop_probs[f'{prop} {sign} {slider_value}'] = round(prop_prob, 6) # round only for output purposes (not rounded in calculations)
+            multi_odds *= prop_prob
         prop_probs['Product'] = round(multi_odds, 6) # round only for output purposes (not rounded in calculations)
         # Display Table to represent Additive/Multiplicative Odds
         odds_df = pd.DataFrame.from_dict(prop_probs, orient='index', columns=['Probability']).reset_index(names='Prop')
